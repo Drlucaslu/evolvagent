@@ -1,17 +1,17 @@
 """
 Agent: the central orchestrator of EvolvAgent.
 
-Manages the Agent lifecycle (init → idle → active → reflecting → shutdown),
+Manages the Agent lifecycle (init -> idle -> active -> reflecting -> shutdown),
 coordinates all subsystems through the event bus, and enforces the
 "human-first" resource policy.
 
 State machine:
-    INITIALIZING → IDLE ↔ ACTIVE
-                     ↕       ↕
-                  REFLECTING  │
-                     ↓        │
-                  IDLE ←──────┘
-                     ↓
+    INITIALIZING -> IDLE <-> ACTIVE
+                     |        |
+                  REFLECTING   |
+                     |         |
+                  IDLE <-------+
+                     |
                   SHUTTING_DOWN
 """
 
@@ -19,12 +19,14 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Coroutine, Optional
 
 from .config import Settings, get_settings
 from .events import EventBus
+from .learner import DynamicSkill, LearnResult, SkillLearner
 from .llm import LLMClient
 from .reflection import ReflectionEngine, ReflectionResult
 from .scheduler import AgentScheduler
@@ -62,8 +64,8 @@ class Agent:
     """
     The EvolvAgent core.
 
-    Coordinates task engine, knowledge base, reflection module, and scheduler
-    through the event bus. All inter-module communication is event-driven.
+    Coordinates task engine, knowledge base, reflection module, learner,
+    and scheduler through the event bus.
     """
 
     def __init__(self, settings: Settings | None = None):
@@ -73,24 +75,26 @@ class Agent:
 
         # Metadata
         self.name = self.settings.agent.name
-        self.agent_id = self.name  # TODO: generate unique ID
+        self.agent_id = f"{self.name}-{uuid.uuid4().hex[:8]}"
         self.started_at: float = 0
         self.last_active_at: float = 0
-        self.workspace: str = ""  # Current workspace directory for activity logging
+        self.workspace: str = ""
 
         # Skill registry (in-memory, synced with SQLite store)
         self._skills: dict[str, BaseSkill] = {}
         self._store: SkillStore | None = None
 
-        # Scheduler + reflection
+        # Scheduler + reflection + learning
         self._scheduler: AgentScheduler | None = None
         self._llm: LLMClient | None = None
+        self._learner: SkillLearner | None = None
         self._last_reflection_result: ReflectionResult | None = None
+        self._last_learn_result: LearnResult | None = None
 
         # Statistics
         self.stats = AgentStats()
 
-        logger.info("Agent '%s' created in state: %s", self.name, self.state.value)
+        logger.info("Agent '%s' (%s) created", self.name, self.agent_id)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -116,7 +120,12 @@ class Agent:
             self.stats.failed_tasks = saved_stats.get("failed_tasks", 0)
             self.stats.no_skill_found = saved_stats.get("no_skill_found", 0)
 
-        # Emit initialization event (subsystems will listen and init themselves)
+        # Initialize learner
+        self._learner = SkillLearner(
+            llm=self._llm, bus=self.bus, store=self._store,
+        )
+
+        # Emit initialization event
         await self.bus.emit_async("agent.starting", {
             "agent_id": self.agent_id,
             "data_dir": str(data_dir),
@@ -125,6 +134,9 @@ class Agent:
 
         self.started_at = time.time()
         self._transition(AgentState.IDLE)
+
+        # Load persisted dynamic skills
+        self._load_dynamic_skills()
 
         # Start background scheduler
         self._scheduler = AgentScheduler(self)
@@ -184,7 +196,7 @@ class Agent:
             "old_state": old_state.value,
             "new_state": new_state.value,
         }, source="agent")
-        logger.debug("State: %s → %s", old_state.value, new_state.value)
+        logger.debug("State: %s -> %s", old_state.value, new_state.value)
 
     @property
     def is_idle(self) -> bool:
@@ -195,7 +207,7 @@ class Agent:
         return self.state == AgentState.ACTIVE
 
     def set_llm(self, llm: LLMClient) -> None:
-        """Set the LLM client for reflection. Call before start()."""
+        """Set the LLM client for reflection and learning. Call before start()."""
         self._llm = llm
 
     @property
@@ -226,6 +238,7 @@ class Agent:
             del self._skills[name]
             if self._store:
                 self._store.delete(name)
+                self._store.delete_skill_definition(name)
             self.bus.emit("skill.unregistered", {"skill_name": name}, source="agent")
 
     def get_skill(self, name: str) -> BaseSkill | None:
@@ -249,18 +262,35 @@ class Agent:
         Find Skills that can handle an intent.
 
         Returns list of (skill, confidence) sorted by confidence * utility.
-        This is phase 1 of the two-phase retrieval (semantic recall + utility sort).
         """
         candidates = []
         for skill in self.active_skills:
             confidence = skill.can_handle(intent)
             if confidence > 0:
-                # Combine confidence with utility for ranking
                 score = confidence * 0.6 + skill.metadata.utility_score * 0.4
                 candidates.append((skill, score))
 
         candidates.sort(key=lambda x: x[1], reverse=True)
         return candidates
+
+    def _load_dynamic_skills(self) -> None:
+        """Reload persisted DynamicSkills from the store."""
+        if not self._store or not self._llm:
+            return
+        definitions = self._store.load_all_skill_definitions()
+        for defn in definitions:
+            name = defn.get("metadata", {}).get("name", "")
+            if name and name not in self._skills:
+                try:
+                    skill = DynamicSkill.from_definition(defn, self._llm)
+                    # Restore persisted metadata if available
+                    saved = self._store.load(name)
+                    if saved:
+                        skill.metadata = saved
+                    self._skills[name] = skill
+                    logger.info("Loaded dynamic skill: %s", name)
+                except Exception as e:
+                    logger.warning("Failed to load dynamic skill '%s': %s", name, e)
 
     # ------------------------------------------------------------------
     # Task handling
@@ -276,9 +306,9 @@ class Agent:
         Handle a user request, enforcing trust levels.
 
         Trust behavior:
-          OBSERVE  — preview only, no execution
-          SUGGEST  — preview + ask user confirmation, execute if approved
-          AUTO     — execute directly
+          OBSERVE  -- preview only, no execution
+          SUGGEST  -- preview + ask user confirmation, execute if approved
+          AUTO     -- execute directly
         """
         self._transition(AgentState.ACTIVE)
         self.last_active_at = time.time()
@@ -294,6 +324,9 @@ class Agent:
             candidates = self.find_skill_for_intent(user_input)
             if not candidates:
                 self.stats.no_skill_found += 1
+                # Record miss for learner
+                if self._learner:
+                    self._learner.record(user_input, "", False)
                 return "I don't have a Skill that can handle this request yet."
 
             skill, score = candidates[0]
@@ -339,7 +372,7 @@ class Agent:
                     old_trust = skill.metadata.trust_level
                     skill.metadata.promote_trust()
                     logger.info(
-                        "Skill '%s' trust promoted: %s → %s (after %d successes)",
+                        "Skill '%s' trust promoted: %s -> %s (after %d successes)",
                         skill.metadata.name, old_trust.value,
                         skill.metadata.trust_level.value, skill.metadata.success_count,
                     )
@@ -365,6 +398,12 @@ class Agent:
             else:
                 self.stats.failed_tasks += 1
 
+            # Record for learner
+            if self._learner:
+                self._learner.record(
+                    user_input, skill.metadata.name, result.success,
+                )
+
             # Log activity
             if self._store:
                 self._store.log_activity(
@@ -380,8 +419,12 @@ class Agent:
         finally:
             self._transition(AgentState.IDLE)
 
+    # ------------------------------------------------------------------
+    # Reflection + Learning
+    # ------------------------------------------------------------------
+
     async def enter_reflection(self) -> ReflectionResult | None:
-        """Enter offline reflection mode — LLM-driven principle extraction."""
+        """Enter offline reflection mode -- LLM-driven principle extraction + learning."""
         if self.state != AgentState.IDLE:
             logger.warning("Cannot reflect: not in IDLE state (current: %s)", self.state.value)
             return None
@@ -393,6 +436,7 @@ class Agent:
         }, source="agent")
 
         try:
+            # Phase 1: Principle extraction
             engine = ReflectionEngine(
                 llm=self._llm,
                 bus=self.bus,
@@ -400,6 +444,15 @@ class Agent:
             )
             result = await engine.reflect(self._skills)
             self._last_reflection_result = result
+
+            # Phase 2: Skill learning
+            if self._learner:
+                learn_result = await self._learner.analyze_and_learn(self._skills)
+                self._last_learn_result = learn_result
+                # Hydrate any newly created skills
+                for name in learn_result.created_skill_names:
+                    self._hydrate_learned_skill(name)
+
             logger.info(
                 "Reflection complete: analyzed=%d updated=%d principles=%d",
                 result.skills_analyzed,
@@ -416,6 +469,52 @@ class Agent:
             await self.bus.emit_async("agent.reflection_completed", {
                 "agent_id": self.agent_id,
             }, source="agent")
+
+    async def learn_skill(
+        self,
+        name: str,
+        description: str,
+        system_prompt: str,
+        triggers: list[str],
+        tags: list[str] | None = None,
+    ) -> DynamicSkill | None:
+        """Teach the agent a new skill explicitly. Returns the created skill."""
+        if not self._learner:
+            return None
+
+        defn = await self._learner.teach(
+            name=name,
+            description=description,
+            system_prompt=system_prompt,
+            triggers=triggers,
+            tags=tags,
+        )
+
+        return self._hydrate_learned_skill(defn["metadata"]["name"], defn)
+
+    def _hydrate_learned_skill(
+        self,
+        name: str,
+        defn: dict | None = None,
+    ) -> DynamicSkill | None:
+        """Load a skill definition from store and register it."""
+        if not self._llm:
+            return None
+        if not defn and self._store:
+            defn = self._store.load_skill_definition(name)
+        if not defn:
+            return None
+        if name in self._skills:
+            return None
+
+        try:
+            skill = DynamicSkill.from_definition(defn, self._llm)
+            self.register_skill(skill)
+            logger.info("Learned skill hydrated and registered: %s", name)
+            return skill
+        except Exception as e:
+            logger.warning("Failed to hydrate learned skill '%s': %s", name, e)
+            return None
 
     # ------------------------------------------------------------------
     # Status
@@ -434,11 +533,29 @@ class Agent:
                 "skipped_reason": r.skipped_reason,
             }
 
+        last_learn = None
+        if self._last_learn_result:
+            lr = self._last_learn_result
+            last_learn = {
+                "patterns_analyzed": lr.patterns_analyzed,
+                "skills_created": lr.skills_created,
+                "created_skill_names": lr.created_skill_names,
+                "skipped_reason": lr.skipped_reason,
+            }
+
+        # Count learned vs builtin
+        learned_count = sum(
+            1 for s in self._skills.values()
+            if isinstance(s, DynamicSkill)
+        )
+
         return {
             "name": self.name,
+            "agent_id": self.agent_id,
             "state": self.state.value,
             "uptime_seconds": self.uptime,
             "skill_count": self.skill_count,
+            "learned_skill_count": learned_count,
             "active_skills": [s.metadata.name for s in self.active_skills],
             "stats": {
                 "total_requests": self.stats.total_requests,
@@ -448,6 +565,7 @@ class Agent:
             },
             "scheduler_running": self._scheduler is not None and self._scheduler.is_running,
             "last_reflection": last_ref,
+            "last_learning": last_learn,
         }
 
 

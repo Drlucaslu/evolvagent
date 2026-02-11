@@ -1,3 +1,3 @@
-"""EvolvAgent — A decentralized self-evolving agent network."""
+"""EvolvAgent — A self-evolving AI agent that learns, reflects, and grows."""
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

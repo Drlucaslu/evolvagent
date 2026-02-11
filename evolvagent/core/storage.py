@@ -29,6 +29,12 @@ CREATE TABLE IF NOT EXISTS skills (
     updated_at REAL
 );
 
+CREATE TABLE IF NOT EXISTS skill_definitions (
+    name       TEXT PRIMARY KEY,
+    definition TEXT NOT NULL,
+    created_at REAL
+);
+
 CREATE TABLE IF NOT EXISTS agent_stats (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -194,3 +200,41 @@ class SkillStore:
                 (limit,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    # ------------------------------------------------------------------
+    # Skill definitions (for DynamicSkill persistence)
+    # ------------------------------------------------------------------
+
+    def save_skill_definition(self, name: str, definition: dict[str, Any]) -> None:
+        """Save a DynamicSkill definition."""
+        self._conn.execute(
+            "INSERT INTO skill_definitions (name, definition, created_at) "
+            "VALUES (?, ?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET definition=excluded.definition",
+            (name, json.dumps(definition, ensure_ascii=False), time.time()),
+        )
+        self._conn.commit()
+
+    def load_skill_definition(self, name: str) -> dict[str, Any] | None:
+        """Load a DynamicSkill definition by name."""
+        row = self._conn.execute(
+            "SELECT definition FROM skill_definitions WHERE name = ?", (name,)
+        ).fetchone()
+        if row is None:
+            return None
+        return json.loads(row["definition"])
+
+    def load_all_skill_definitions(self) -> list[dict[str, Any]]:
+        """Load all DynamicSkill definitions."""
+        rows = self._conn.execute(
+            "SELECT definition FROM skill_definitions ORDER BY created_at"
+        ).fetchall()
+        return [json.loads(r["definition"]) for r in rows]
+
+    def delete_skill_definition(self, name: str) -> bool:
+        """Delete a DynamicSkill definition."""
+        cursor = self._conn.execute(
+            "DELETE FROM skill_definitions WHERE name = ?", (name,)
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0

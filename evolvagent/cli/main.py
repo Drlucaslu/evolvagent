@@ -270,9 +270,12 @@ def cmd_repl(args):
     def _print_status(agent):
         info = agent.status_dict()
         stats = info["stats"]
+        learned = info.get("learned_skill_count", 0)
         text = Text()
         text.append(f"{info['name']}", style="bold")
         text.append(f"  |  Skills: {info['skill_count']}")
+        if learned:
+            text.append(f" ({learned} learned)", style="cyan")
         text.append(f"  |  Requests: {stats['total_requests']}")
         text.append(f"  |  Success: {stats['successful_tasks']}", style="green")
         text.append(f"  Fail: {stats['failed_tasks']}", style="red")
@@ -289,12 +292,19 @@ def cmd_repl(args):
                     f"updated={lr['skills_updated']} "
                     f"principles={lr['principles_extracted']}[/]"
                 )
+        ll = info.get("last_learning")
+        if ll and not ll.get("skipped_reason"):
+            _console.print(
+                f"  [dim]Last learning: patterns={ll['patterns_analyzed']} "
+                f"created={ll['skills_created']}[/]"
+            )
 
     def _print_help():
         help_items = [
             ("/status", "show agent status"),
             ("/skills", "list registered skills"),
-            ("/reflect", "trigger manual reflection"),
+            ("/reflect", "trigger reflection + learning"),
+            ("/teach", "teach agent a new skill"),
             ("/context", "generate/update CLAUDE.md"),
             ("/history", "show conversation history length"),
             ("/clear", "clear conversation history"),
@@ -367,6 +377,45 @@ def cmd_repl(args):
                         if result.errors:
                             for err in result.errors:
                                 _console.print(f"  [red]Error:[/] {err}")
+                    continue
+                elif cmd == "/teach":
+                    _console.print("  [bold]Teach a new skill[/]")
+                    try:
+                        name = await loop.run_in_executor(
+                            None, lambda: input("  Name (snake_case): ").strip()
+                        )
+                        if not name:
+                            _console.print("  [dim]Cancelled.[/]")
+                            continue
+                        desc = await loop.run_in_executor(
+                            None, lambda: input("  Description: ").strip()
+                        )
+                        triggers_raw = await loop.run_in_executor(
+                            None, lambda: input("  Trigger phrases (comma-sep): ").strip()
+                        )
+                        triggers = [t.strip() for t in triggers_raw.split(",") if t.strip()]
+                        prompt = await loop.run_in_executor(
+                            None, lambda: input("  System prompt: ").strip()
+                        )
+                        if not prompt or not triggers:
+                            _console.print("  [red]Need at least triggers + prompt.[/]")
+                            continue
+
+                        skill = await agent.learn_skill(
+                            name=name,
+                            description=desc,
+                            system_prompt=prompt,
+                            triggers=triggers,
+                        )
+                        if skill:
+                            _console.print(
+                                f"  [green]Skill '{skill.metadata.name}' created![/] "
+                                f"(trust: observe)"
+                            )
+                        else:
+                            _console.print("  [red]Failed to create skill.[/]")
+                    except (EOFError, KeyboardInterrupt):
+                        _console.print("\n  [dim]Cancelled.[/]")
                     continue
                 elif cmd == "/history":
                     _console.print(f"  [dim]{len(history) // 2} turns in history[/]")
@@ -586,8 +635,8 @@ def cmd_version(args):
     body = Text()
     body.append("EvolvAgent", style="bold")
     body.append(f" v{__version__}\n")
-    body.append("A decentralized self-evolving agent network\n", style="dim")
-    body.append("Phase 1 — Intent & Execution", style="dim italic")
+    body.append("A self-evolving AI agent that learns and grows\n", style="dim")
+    body.append("Phase 3 — Skill Learning", style="dim italic")
     _console.print(Panel(body, border_style="cyan"))
 
 
