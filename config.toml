@@ -1,0 +1,53 @@
+# EvolvAgent Configuration
+# Copy to ~/.evolvagent/config.toml and customize
+
+[agent]
+name = "agent-001"
+description = "My personal development assistant"
+data_dir = "~/.evolvagent"
+
+[llm]
+# LiteLLM model string - supports OpenAI, Claude, local models
+# Examples: "gpt-4o-mini", "claude-sonnet-4-20250514", "ollama/llama3"
+model = "anthropic/claude-haiku-4-5-20251001"
+fallback_model = ""
+max_tokens = 4096
+temperature = 0.3
+daily_cost_limit_usd = 1.0
+
+[scheduler]
+# Resource thresholds for Agent activity
+cpu_threshold_percent = 70
+memory_threshold_percent = 80
+# How often to check for idle opportunities (seconds)
+idle_check_interval = 300
+# Minimum idle time before starting offline reflection (seconds)
+min_idle_for_reflection = 600
+
+[knowledge]
+# SQLite database location (relative to data_dir)
+db_name = "knowledge.db"
+# ChromaDB collection settings
+vector_collection = "skills"
+embedding_model = "default"
+
+[evolution]
+# Utility score settings
+initial_utility = 0.5
+learning_rate = 0.1
+# Ebbinghaus decay: utility *= decay_factor ^ days_since_last_use
+decay_factor = 0.95
+# Skills below this threshold + inactive for archive_after_days get archived
+archive_threshold = 0.2
+archive_after_days = 30
+
+[trust]
+# Progressive trust levels: observe -> suggest -> auto
+default_level = "observe"
+# Number of successful executions before suggesting auto-upgrade
+promote_threshold = 10
+
+[network]
+# Phase 3 settings - not used until then
+marketplace_url = ""
+listen_port = 8765

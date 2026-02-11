@@ -1,0 +1,46 @@
+[project]
+name = "evolvagent"
+version = "0.2.0"
+description = "A decentralized self-evolving agent network where agents learn, reflect, and share skills"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+dependencies = [
+    "psutil>=5.9.0",
+    "rich>=13.0.0",
+    "litellm>=1.50.0",
+]
+
+[project.optional-dependencies]
+full = [
+    "chromadb>=0.5.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "apscheduler>=3.10.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.5.0",
+]
+server = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.30.0",
+    "websockets>=12.0",
+]
+
+[project.scripts]
+evolvagent = "evolvagent.cli.main:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
