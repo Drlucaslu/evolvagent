@@ -21,9 +21,12 @@ import logging
 import time
 import uuid
 from enum import Enum
-from typing import Any, Callable, Coroutine
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 from .config import Settings, get_settings
+
+if TYPE_CHECKING:
+    from evolvagent.messaging.base import MessagingBridge
 from .events import EventBus
 from .learner import DynamicSkill, LearnResult, SkillLearner
 from .llm import LLMClient
@@ -85,11 +88,12 @@ class Agent:
         self._skills: dict[str, BaseSkill] = {}
         self._store: SkillStore | None = None
 
-        # Scheduler + reflection + learning + network
+        # Scheduler + reflection + learning + network + messaging
         self._scheduler: AgentScheduler | None = None
         self._llm: LLMClient | None = None
         self._learner: SkillLearner | None = None
         self._network: NetworkServer | None = None
+        self._messaging_bridge: MessagingBridge | None = None
         self._last_reflection_result: ReflectionResult | None = None
         self._last_learn_result: LearnResult | None = None
 
@@ -151,6 +155,19 @@ class Agent:
             except Exception as e:
                 logger.warning("Failed to auto-start network: %s", e)
 
+        # Auto-start messaging bridge if configured
+        if self.settings.messaging.enabled:
+            try:
+                from evolvagent.messaging import MessagingBridge
+                self._messaging_bridge = MessagingBridge(self, self.settings.messaging)
+                await self._messaging_bridge.start()
+            except ImportError:
+                logger.warning(
+                    "Messaging deps not installed. pip install evolvagent[messaging]"
+                )
+            except Exception as e:
+                logger.warning("Failed to start messaging: %s", e)
+
         await self.bus.emit_async("agent.started", {
             "agent_id": self.agent_id,
         }, source="agent")
@@ -160,6 +177,14 @@ class Agent:
     async def shutdown(self) -> None:
         """Gracefully shut down all subsystems."""
         logger.info("Shutting down agent '%s'...", self.name)
+
+        # Stop messaging bridge
+        if self._messaging_bridge:
+            try:
+                await self._messaging_bridge.stop()
+            except Exception as e:
+                logger.warning("Error stopping messaging bridge: %s", e)
+            self._messaging_bridge = None
 
         # Stop network before state transition
         await self.stop_network()

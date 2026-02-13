@@ -53,6 +53,18 @@ log_file = "evolvagent.log"
 max_bytes = 5_000_000
 backup_count = 3
 
+[messaging]
+enabled = false
+forward_events = ["skill.executed", "agent.state_changed", "scheduler.maintenance_completed", "skill.learned", "skill.taught", "agent.reflection_started", "agent.reflection_completed"]
+report_interval_seconds = 3600
+enable_commands = true
+confirm_timeout_seconds = 120
+
+[messaging.telegram]
+enabled = false
+bot_token = ""                    # From @BotFather, or set EVOLVAGENT_TG_BOT_TOKEN env var
+allowed_chat_ids = []             # Empty = allow all (dev mode only)
+
 [network]
 listen_port = 8765
 seed_peers = []
@@ -61,3 +73,7 @@ gossip_interval = 60
 max_peers = 20
 share_learned_skills = true
 share_builtin_skills = false
+# Bootstrap registry URL for automatic peer discovery (empty = disabled)
+# e.g. "http://your-server:9000"
+bootstrap_registry = ""
+bootstrap_heartbeat_interval = 60

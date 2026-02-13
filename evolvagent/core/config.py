@@ -84,6 +84,8 @@ class NetworkConfig:
     tls_cert: str = ""
     tls_key: str = ""
     rate_limit_per_min: int = 100
+    bootstrap_registry: str = ""          # Registry URL, e.g. "http://registry.example.com:9000"
+    bootstrap_heartbeat_interval: int = 60  # Heartbeat interval (seconds)
 
 
 @dataclass
@@ -92,6 +94,32 @@ class LoggingConfig:
     log_file: str = "evolvagent.log"
     max_bytes: int = 5_000_000
     backup_count: int = 3
+
+
+@dataclass
+class TelegramConfig:
+    enabled: bool = False
+    bot_token: str = ""               # From @BotFather, or EVOLVAGENT_TG_BOT_TOKEN env var
+    allowed_chat_ids: list[int] = field(default_factory=list)  # Empty = allow all (dev mode)
+
+
+@dataclass
+class MessagingConfig:
+    enabled: bool = False
+    telegram: TelegramConfig = field(default_factory=TelegramConfig)
+    # Events to forward to messaging adapters
+    forward_events: list[str] = field(default_factory=lambda: [
+        "skill.executed",
+        "agent.state_changed",
+        "scheduler.maintenance_completed",
+        "skill.learned",
+        "skill.taught",
+        "agent.reflection_started",
+        "agent.reflection_completed",
+    ])
+    report_interval_seconds: int = 3600   # Default hourly, 0 = disabled
+    enable_commands: bool = True
+    confirm_timeout_seconds: int = 120    # SUGGEST confirmation timeout
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +138,7 @@ class Settings:
     trust: TrustConfig = field(default_factory=TrustConfig)
     network: NetworkConfig = field(default_factory=NetworkConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    messaging: MessagingConfig = field(default_factory=MessagingConfig)
 
 
 # ---------------------------------------------------------------------------
@@ -123,10 +152,31 @@ DEFAULT_CONFIG_PATHS = [
 
 
 def _make_section(cls, data: dict) -> object:
-    """Create a dataclass instance from a dict, ignoring unknown keys."""
+    """Create a dataclass instance from a dict, ignoring unknown keys.
+
+    Supports nested dataclass fields: if a field's type is a dataclass
+    and the value is a dict, it is recursively parsed.
+    """
     import dataclasses
-    valid_keys = {f.name for f in dataclasses.fields(cls)}
-    filtered = {k: v for k, v in data.items() if k in valid_keys}
+    import typing
+
+    # Resolve string annotations (from __future__ annotations) to actual types
+    try:
+        type_hints = typing.get_type_hints(cls)
+    except (NameError, TypeError, AttributeError):
+        type_hints = {f.name: f.type for f in dataclasses.fields(cls)}
+
+    valid_fields = {f.name for f in dataclasses.fields(cls)}
+    filtered = {}
+    for k, v in data.items():
+        if k not in valid_fields:
+            continue
+        # Check if the field type is a nested dataclass
+        field_type = type_hints.get(k)
+        if isinstance(v, dict) and field_type and dataclasses.is_dataclass(field_type):
+            filtered[k] = _make_section(field_type, v)
+        else:
+            filtered[k] = v
     return cls(**filtered)
 
 
@@ -153,6 +203,7 @@ def load_settings(config_path: Path | None = None) -> Settings:
         "trust": TrustConfig,
         "network": NetworkConfig,
         "logging": LoggingConfig,
+        "messaging": MessagingConfig,
     }
 
     kwargs = {}

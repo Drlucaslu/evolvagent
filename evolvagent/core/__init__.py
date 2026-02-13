@@ -1,7 +1,10 @@
 """Core modules: agent, config, events, skill, llm, storage, reflection, scheduler, learner, network."""
 
 from .agent import Agent, AgentState, InvalidTransition
-from .config import Settings, get_settings, load_settings, reset_settings
+from .config import (
+    MessagingConfig, Settings, TelegramConfig,
+    get_settings, load_settings, reset_settings,
+)
 from .events import EventBus, Event
 from .learner import DynamicSkill, LearnResult, SkillLearner
 from .llm import LLMClient, LLMResponse, LLMError, LLMBudgetExceeded
@@ -17,7 +20,8 @@ from .skill import (
 
 __all__ = [
     "Agent", "AgentState", "InvalidTransition",
-    "Settings", "get_settings", "load_settings", "reset_settings",
+    "MessagingConfig", "Settings", "TelegramConfig",
+    "get_settings", "load_settings", "reset_settings",
     "EventBus", "Event",
     "DynamicSkill", "LearnResult", "SkillLearner",
     "LLMClient", "LLMResponse", "LLMError", "LLMBudgetExceeded",

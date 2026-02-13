@@ -11,7 +11,7 @@ COPY pyproject.toml .
 COPY evolvagent/ evolvagent/
 COPY config.toml.example config.toml
 
-RUN pip install --no-cache-dir ".[network]"
+RUN pip install --no-cache-dir ".[network,messaging]"
 
 # Data directory
 RUN mkdir -p /data/logs

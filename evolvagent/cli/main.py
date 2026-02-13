@@ -340,6 +340,7 @@ def cmd_repl(args):
             ("/connect", "connect to a peer (host:port)"),
             ("/browse", "browse skills from connected peers"),
             ("/import", "import skill from a peer"),
+            ("/messaging", "start/stop/show messaging status"),
             ("/context", "generate/update CLAUDE.md"),
             ("/history", "show conversation history length"),
             ("/clear", "clear conversation history"),
@@ -474,6 +475,15 @@ def cmd_repl(args):
                                 f"  [green]Network running[/] on port "
                                 f"{agent.settings.network.listen_port}"
                             )
+                            reg_url = agent.settings.network.bootstrap_registry
+                            if reg_url:
+                                reg_status = (
+                                    "registered" if agent.network._registry_registered
+                                    else "not registered"
+                                )
+                                _console.print(
+                                    f"  Registry: {reg_url} ({reg_status})"
+                                )
                             _console.print(
                                 f"  Connected: {len(pm.connected_peers)} | "
                                 f"Known: {len(pm.known_peers)}"
@@ -589,6 +599,62 @@ def cmd_repl(args):
                         )
                     else:
                         _console.print("  [red]Import failed.[/]")
+                    continue
+                elif cmd == "/messaging":
+                    parts = user_input.split()
+                    subcmd = parts[1].lower() if len(parts) > 1 else ""
+                    if subcmd == "start":
+                        if agent._messaging_bridge and agent._messaging_bridge.is_running:
+                            _console.print("  [dim]Messaging already running.[/]")
+                        else:
+                            try:
+                                from evolvagent.messaging import MessagingBridge
+                                agent._messaging_bridge = MessagingBridge(
+                                    agent, agent.settings.messaging,
+                                )
+                                await agent._messaging_bridge.start()
+                                if agent._messaging_bridge.is_running:
+                                    _console.print("  [green]Messaging started.[/]")
+                                else:
+                                    _console.print(
+                                        "  [yellow]No adapters started. "
+                                        "Check config.[/]"
+                                    )
+                            except ImportError:
+                                _console.print(
+                                    "  [red]Missing deps:[/] "
+                                    "pip install evolvagent[messaging]"
+                                )
+                            except Exception as e:
+                                _console.print(f"  [red]Failed:[/] {e}")
+                    elif subcmd == "stop":
+                        if agent._messaging_bridge:
+                            await agent._messaging_bridge.stop()
+                            agent._messaging_bridge = None
+                            _console.print("  [dim]Messaging stopped.[/]")
+                        else:
+                            _console.print("  [dim]Messaging not running.[/]")
+                    else:
+                        if (
+                            agent._messaging_bridge
+                            and agent._messaging_bridge.is_running
+                        ):
+                            adapters = agent._messaging_bridge.adapters
+                            names = [a.name for a in adapters if a.is_running]
+                            _console.print(
+                                f"  [green]Messaging running[/] — "
+                                f"adapters: {', '.join(names) or '(none)'}"
+                            )
+                            for a in adapters:
+                                chats = getattr(a, "active_chat_ids", set())
+                                _console.print(
+                                    f"    {a.name}: {len(chats)} active chat(s)"
+                                )
+                        else:
+                            _console.print(
+                                "  [dim]Messaging not running. "
+                                "Use /messaging start to begin.[/]"
+                            )
                     continue
                 elif cmd == "/history":
                     _console.print(f"  [dim]{len(history) // 2} turns in history[/]")
@@ -809,7 +875,7 @@ def cmd_version(args):
     body.append("EvolvAgent", style="bold")
     body.append(f" v{__version__}\n")
     body.append("A self-evolving AI agent that learns and grows\n", style="dim")
-    body.append("Phase 4 — P2P Network", style="dim italic")
+    body.append("Phase 5 — Messaging Integration", style="dim italic")
     _console.print(Panel(body, border_style="cyan"))
 
 

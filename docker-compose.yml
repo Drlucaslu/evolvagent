@@ -1,17 +1,29 @@
 version: "3.8"
 
 services:
+  registry:
+    build: .
+    container_name: evolvagent-registry
+    command: ["python", "-m", "evolvagent.registry", "--port", "9000"]
+    ports:
+      - "9000:9000"
+    networks:
+      - agentnet
+
   agent-alpha:
     build: .
     container_name: evolvagent-alpha
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - EVOLVAGENT_TG_BOT_TOKEN=${EVOLVAGENT_TG_BOT_TOKEN}
     volumes:
       - alpha-data:/data
       - ./config.toml.example:/app/config.toml:ro
     ports:
       - "8765:8765"
     command: ["evolvagent", "repl"]
+    depends_on:
+      - registry
     networks:
       - agentnet
 
@@ -20,12 +32,15 @@ services:
     container_name: evolvagent-beta
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - EVOLVAGENT_TG_BOT_TOKEN=${EVOLVAGENT_TG_BOT_TOKEN}
     volumes:
       - beta-data:/data
       - ./config.toml.example:/app/config.toml:ro
     ports:
       - "8766:8765"
     command: ["evolvagent", "repl"]
+    depends_on:
+      - registry
     networks:
       - agentnet
 
