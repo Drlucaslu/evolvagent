@@ -12,13 +12,12 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from evolvagent.core.config import Settings, AgentConfig
 from evolvagent.core.events import EventBus
 from evolvagent.core.llm import LLMResponse
-from evolvagent.core.reflection import ReflectionEngine, ReflectionResult
+from evolvagent.core.reflection import ReflectionEngine
 from evolvagent.core.skill import (
     BaseSkill, FailureCategory, FailureLesson, SkillMetadata,
-    SkillOrigin, SkillResult, SkillStatus, TrustLevel,
+    SkillOrigin, SkillResult, SkillStatus,
 )
 from evolvagent.core.storage import SkillStore
 

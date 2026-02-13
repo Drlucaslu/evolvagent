@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
 # Install Python package
 COPY pyproject.toml .
 COPY evolvagent/ evolvagent/
-COPY config.toml .
+COPY config.toml.example config.toml
 
 RUN pip install --no-cache-dir ".[network]"
 

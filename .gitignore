@@ -28,3 +28,6 @@ htmlcov/
 
 # Runtime data
 *.db
+
+# User config (tracked as config.toml.example)
+config.toml

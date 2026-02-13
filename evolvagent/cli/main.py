@@ -43,7 +43,7 @@ def cmd_init(args):
 
     config_path = data_dir / "config.toml"
     if not config_path.exists():
-        src = Path(__file__).parent.parent.parent / "config.toml"
+        src = Path(__file__).parent.parent.parent / "config.toml.example"
         if src.exists():
             shutil.copy(src, config_path)
         else:
@@ -59,7 +59,7 @@ def cmd_init(args):
     body.append(f"{data_dir}\n\n")
     body.append("Next steps:\n", style="bold")
     body.append(f"  1. Edit {config_path} to set your LLM model/key\n", style="dim")
-    body.append(f"  2. Run: evolvagent status", style="dim")
+    body.append("  2. Run: evolvagent status", style="dim")
     _console.print(Panel(body, title="[green]Workspace Initialized[/]", border_style="green"))
 
 
@@ -84,7 +84,7 @@ def _init_logging(args):
 
 def cmd_status(args):
     """Show current agent status."""
-    from evolvagent.core import Agent, Settings, get_settings, reset_settings
+    from evolvagent.core import Agent, get_settings, reset_settings
 
     _init_logging(args)
 
@@ -139,7 +139,7 @@ def cmd_status(args):
 
 def cmd_skills(args):
     """List all registered skills."""
-    from evolvagent.core import Agent, Settings, get_settings, reset_settings
+    from evolvagent.core import Agent, get_settings, reset_settings
 
     reset_settings()
     settings = get_settings()
@@ -711,7 +711,7 @@ def cmd_context(args):
         lines = result.output.split("\n")
         _console.print(f"\n  {action} [bold]{claude_md}[/]")
         _console.print(f"  [dim]({len(result.output)} bytes, {len(lines)} lines)[/]")
-        answer = input(f"\n  Write CLAUDE.md? (y/n): ").strip().lower()
+        answer = input("\n  Write CLAUDE.md? (y/n): ").strip().lower()
         if answer not in ("y", "yes"):
             _console.print("  [dim]Cancelled.[/]")
             return

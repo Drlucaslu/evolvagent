@@ -21,8 +21,7 @@ import logging
 import time
 import uuid
 from enum import Enum
-from pathlib import Path
-from typing import Any, Callable, Coroutine, Optional
+from typing import Any, Callable, Coroutine
 
 from .config import Settings, get_settings
 from .events import EventBus
@@ -32,7 +31,7 @@ from .network import NetworkServer
 from .protocol import compute_skill_hash
 from .reflection import ReflectionEngine, ReflectionResult
 from .scheduler import AgentScheduler
-from .skill import BaseSkill, SkillMetadata, SkillOrigin, SkillStatus, TrustLevel
+from .skill import BaseSkill, SkillOrigin, SkillStatus, TrustLevel
 from .storage import SkillStore
 
 # Callback type for SUGGEST mode: (skill_name, preview_text) -> approved?

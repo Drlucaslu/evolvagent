@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import tempfile
-import time
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
@@ -16,10 +15,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from evolvagent.core.agent import Agent
 from evolvagent.core.config import Settings, AgentConfig
 from evolvagent.core.events import EventBus
-from evolvagent.core.learner import DynamicSkill, LearnResult, SkillLearner
+from evolvagent.core.learner import DynamicSkill, SkillLearner
 from evolvagent.core.llm import LLMResponse
 from evolvagent.core.skill import (
-    BaseSkill, SkillMetadata, SkillOrigin, SkillResult, SkillStatus, TrustLevel,
+    SkillMetadata, SkillOrigin, TrustLevel,
 )
 from evolvagent.core.storage import SkillStore
 

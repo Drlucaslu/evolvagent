@@ -8,7 +8,7 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:
       - alpha-data:/data
-      - ./config.toml:/app/config.toml:ro
+      - ./config.toml.example:/app/config.toml:ro
     ports:
       - "8765:8765"
     command: ["evolvagent", "repl"]
@@ -22,7 +22,7 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:
       - beta-data:/data
-      - ./config.toml:/app/config.toml:ro
+      - ./config.toml.example:/app/config.toml:ro
     ports:
       - "8766:8765"
     command: ["evolvagent", "repl"]

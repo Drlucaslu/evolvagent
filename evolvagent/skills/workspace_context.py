@@ -424,7 +424,7 @@ class WorkspaceContextSkill(BaseSkill):
             test_fw = data.get("conventions", {}).get("test_framework")
             test_dir = data.get("conventions", {}).get("test_dir", "tests")
             if test_fw == "pytest":
-                lines.append(f"# Run tests")
+                lines.append("# Run tests")
                 lines.append(f"pytest {test_dir}/ -v")
             linter = data.get("conventions", {}).get("linter")
             if linter == "ruff":

@@ -16,10 +16,10 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from evolvagent.core.events import EventBus, Event
+from evolvagent.core.events import EventBus
 from evolvagent.core.skill import (
     BaseSkill, FailureCategory, FailureLesson, SkillMetadata,
-    SkillOrigin, SkillResult, SkillStatus, TrustLevel,
+    SkillOrigin, SkillResult, TrustLevel,
 )
 from evolvagent.core.agent import Agent, AgentState, InvalidTransition
 from evolvagent.core.config import Settings, AgentConfig, load_settings, reset_settings
@@ -69,7 +69,8 @@ class TestEventBus(unittest.TestCase):
 
     def test_unsubscribe(self):
         count = [0]
-        handler = lambda e: count.__setitem__(0, count[0] + 1)
+        def handler(e):
+            count[0] += 1
         self.bus.on("t", handler)
         self.bus.emit("t")
         self.assertEqual(count[0], 1)

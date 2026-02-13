@@ -2,7 +2,7 @@
 
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License MIT](https://img.shields.io/badge/license-MIT-green)
-![Tests 320 passed](https://img.shields.io/badge/tests-320%20passed-brightgreen)
+![CI](https://github.com/Drlucaslu/evolvagent/actions/workflows/ci.yml/badge.svg)
 
 A decentralized self-evolving agent network where agents learn, reflect, and share skills.
 
@@ -130,7 +130,11 @@ Agents can form a decentralized network to discover and share skills:
 
 ## Configuration
 
-EvolvAgent reads `config.toml` from the current directory or `~/.evolvagent/config.toml`.
+EvolvAgent reads `config.toml` from the current directory or `~/.evolvagent/config.toml`. The repo ships `config.toml.example` — copy and customize it:
+
+```bash
+cp config.toml.example config.toml
+```
 
 ```toml
 [agent]

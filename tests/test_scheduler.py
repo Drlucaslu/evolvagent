@@ -6,15 +6,14 @@ import asyncio
 import tempfile
 import time
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from evolvagent.core.agent import Agent, AgentState
+from evolvagent.core.agent import Agent
 from evolvagent.core.config import Settings, AgentConfig, SchedulerConfig, EvolutionConfig
-from evolvagent.core.scheduler import AgentScheduler, ResourceSnapshot
+from evolvagent.core.scheduler import ResourceSnapshot
 from evolvagent.core.skill import (
     BaseSkill, SkillMetadata, SkillOrigin, SkillResult, SkillStatus,
 )
