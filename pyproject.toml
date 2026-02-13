@@ -1,6 +1,6 @@
 [project]
 name = "evolvagent"
-version = "0.2.0"
+version = "0.4.0"
 description = "A decentralized self-evolving agent network where agents learn, reflect, and share skills"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,11 +13,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+network = [
+    "websockets>=12.0",
+]
 full = [
-    "chromadb>=0.5.0",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
-    "apscheduler>=3.10.0",
+    "websockets>=12.0",
 ]
 dev = [
     "pytest>=8.0.0",

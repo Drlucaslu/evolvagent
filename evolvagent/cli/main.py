@@ -63,9 +63,30 @@ def cmd_init(args):
     _console.print(Panel(body, title="[green]Workspace Initialized[/]", border_style="green"))
 
 
+def _init_logging(args):
+    """Initialize logging from settings + CLI flags."""
+    from evolvagent.core.config import get_settings, reset_settings
+    from evolvagent.core.log import setup_logging
+
+    reset_settings()
+    settings = get_settings()
+    log_cfg = settings.logging
+    level = "DEBUG" if getattr(args, "verbose", False) else log_cfg.level
+    data_dir = settings.agent.resolved_data_dir
+    setup_logging(
+        level=level,
+        log_dir=data_dir / "logs",
+        log_file=log_cfg.log_file,
+        max_bytes=log_cfg.max_bytes,
+        backup_count=log_cfg.backup_count,
+    )
+
+
 def cmd_status(args):
     """Show current agent status."""
     from evolvagent.core import Agent, Settings, get_settings, reset_settings
+
+    _init_logging(args)
 
     reset_settings()
     settings = get_settings()
@@ -216,6 +237,7 @@ def cmd_ask(args):
     """Ask the agent a question."""
     from evolvagent.core import Agent, get_settings, reset_settings
 
+    _init_logging(args)
     query = " ".join(args.query)
 
     reset_settings()
@@ -248,6 +270,7 @@ def cmd_repl(args):
     """Interactive REPL mode — agent stays running with conversation context."""
     from evolvagent.core import Agent, get_settings, reset_settings
 
+    _init_logging(args)
     reset_settings()
     settings = get_settings()
 
@@ -281,6 +304,13 @@ def cmd_repl(args):
         text.append(f"  Fail: {stats['failed_tasks']}", style="red")
         sched = "running" if info.get("scheduler_running") else "stopped"
         text.append(f"  |  Scheduler: {sched}")
+        net = info.get("network")
+        if net and net.get("running"):
+            text.append(
+                f"  |  Network: port={net['port']} "
+                f"peers={net['connected_peers']}/{net['known_peers']}",
+                style="magenta",
+            )
         _console.print(text)
         lr = info.get("last_reflection")
         if lr:
@@ -305,6 +335,11 @@ def cmd_repl(args):
             ("/skills", "list registered skills"),
             ("/reflect", "trigger reflection + learning"),
             ("/teach", "teach agent a new skill"),
+            ("/network", "start/stop/show network status"),
+            ("/peers", "list known and connected peers"),
+            ("/connect", "connect to a peer (host:port)"),
+            ("/browse", "browse skills from connected peers"),
+            ("/import", "import skill from a peer"),
             ("/context", "generate/update CLAUDE.md"),
             ("/history", "show conversation history length"),
             ("/clear", "clear conversation history"),
@@ -416,6 +451,144 @@ def cmd_repl(args):
                             _console.print("  [red]Failed to create skill.[/]")
                     except (EOFError, KeyboardInterrupt):
                         _console.print("\n  [dim]Cancelled.[/]")
+                    continue
+                elif cmd == "/network":
+                    parts = user_input.split()
+                    subcmd = parts[1].lower() if len(parts) > 1 else ""
+                    if subcmd == "start":
+                        try:
+                            await agent.start_network()
+                            port = agent.settings.network.listen_port
+                            _console.print(
+                                f"  [green]Network started on port {port}[/]"
+                            )
+                        except Exception as e:
+                            _console.print(f"  [red]Failed to start network:[/] {e}")
+                    elif subcmd == "stop":
+                        await agent.stop_network()
+                        _console.print("  [dim]Network stopped.[/]")
+                    else:
+                        if agent.network and agent.network.is_running:
+                            pm = agent.network.peer_manager
+                            _console.print(
+                                f"  [green]Network running[/] on port "
+                                f"{agent.settings.network.listen_port}"
+                            )
+                            _console.print(
+                                f"  Connected: {len(pm.connected_peers)} | "
+                                f"Known: {len(pm.known_peers)}"
+                            )
+                        else:
+                            _console.print(
+                                "  [dim]Network not running. "
+                                "Use /network start to begin.[/]"
+                            )
+                    continue
+                elif cmd == "/peers":
+                    if not agent.network or not agent.network.is_running:
+                        _console.print("  [dim]Network not running.[/]")
+                        continue
+                    pm = agent.network.peer_manager
+                    peers = pm.known_peers
+                    if not peers:
+                        _console.print("  [dim]No known peers.[/]")
+                        continue
+                    peer_table = Table(border_style="dim")
+                    peer_table.add_column("Address", style="cyan")
+                    peer_table.add_column("Agent", style="bold")
+                    peer_table.add_column("Status")
+                    peer_table.add_column("Skills", justify="right")
+                    for p in peers:
+                        status = (
+                            Text("connected", style="green") if p.connected
+                            else Text("known", style="dim")
+                        )
+                        peer_table.add_row(
+                            p.address,
+                            p.agent_name or p.agent_id or "?",
+                            status,
+                            str(len(p.skills_cached)),
+                        )
+                    _console.print(peer_table)
+                    continue
+                elif cmd == "/connect":
+                    parts = user_input.split()
+                    if len(parts) < 2:
+                        _console.print("  Usage: /connect host:port")
+                        continue
+                    target = parts[1]
+                    if ":" not in target:
+                        _console.print("  [red]Invalid format. Use host:port[/]")
+                        continue
+                    if not agent.network or not agent.network.is_running:
+                        _console.print(
+                            "  [yellow]Starting network first...[/]"
+                        )
+                        try:
+                            await agent.start_network()
+                        except Exception as e:
+                            _console.print(f"  [red]Failed:[/] {e}")
+                            continue
+                    h, p_str = target.rsplit(":", 1)
+                    try:
+                        p_int = int(p_str)
+                    except ValueError:
+                        _console.print("  [red]Invalid port number.[/]")
+                        continue
+                    _console.print(f"  [dim]Connecting to {target}...[/]")
+                    ok = await agent.network.connect_to_peer(h, p_int)
+                    if ok:
+                        _console.print(f"  [green]Connected to {target}[/]")
+                    else:
+                        _console.print(f"  [red]Failed to connect to {target}[/]")
+                    continue
+                elif cmd == "/browse":
+                    if not agent.network or not agent.network.is_running:
+                        _console.print("  [dim]Network not running.[/]")
+                        continue
+                    parts = user_input.split(maxsplit=1)
+                    query = parts[1] if len(parts) > 1 else ""
+                    _console.print("  [dim]Browsing peer skills...[/]")
+                    skills = await agent.network.browse_skills(query=query)
+                    if not skills:
+                        _console.print("  [dim]No skills found.[/]")
+                        continue
+                    browse_table = Table(border_style="dim")
+                    browse_table.add_column("Skill", style="cyan")
+                    browse_table.add_column("Description")
+                    browse_table.add_column("Agent", style="bold")
+                    browse_table.add_column("Utility", justify="right")
+                    for s in skills:
+                        browse_table.add_row(
+                            s.name, s.description,
+                            s.agent_name or s.agent_id[:12],
+                            f"{s.utility_score:.2f}",
+                        )
+                    _console.print(browse_table)
+                    continue
+                elif cmd == "/import":
+                    parts = user_input.split()
+                    if len(parts) < 3:
+                        _console.print("  Usage: /import <peer_id> <skill_name>")
+                        continue
+                    if not agent.network or not agent.network.is_running:
+                        _console.print("  [dim]Network not running.[/]")
+                        continue
+                    peer_id = parts[1]
+                    skill_name = parts[2]
+                    _console.print(
+                        f"  [dim]Importing '{skill_name}' from {peer_id}...[/]"
+                    )
+                    imported = await agent.import_skill_from_network(
+                        peer_id, skill_name
+                    )
+                    if imported:
+                        _console.print(
+                            f"  [green]Imported '{imported.metadata.name}'[/] "
+                            f"(trust: observe)"
+                        )
+                    else:
+                        _console.print("  [red]Import failed.[/]")
                     continue
                 elif cmd == "/history":
                     _console.print(f"  [dim]{len(history) // 2} turns in history[/]")
@@ -636,7 +809,7 @@ def cmd_version(args):
     body.append("EvolvAgent", style="bold")
     body.append(f" v{__version__}\n")
     body.append("A self-evolving AI agent that learns and grows\n", style="dim")
-    body.append("Phase 3 — Skill Learning", style="dim italic")
+    body.append("Phase 4 — P2P Network", style="dim italic")
     _console.print(Panel(body, border_style="cyan"))
 
 
@@ -644,6 +817,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="evolvagent",
         description="EvolvAgent — A self-evolving AI agent that learns and grows with you.",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable DEBUG-level logging"
     )
     sub = parser.add_subparsers(dest="command")
 

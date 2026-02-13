@@ -200,6 +200,13 @@ class AgentScheduler:
         # Phase 3: Archive
         archived_skills = self._archive_stale_skills()
 
+        # Phase 4: Activity log cleanup & stale peer removal
+        cleanup_count = 0
+        if agent._store:
+            cleanup_count = agent._store.cleanup_activity_log()
+        if hasattr(agent, 'network') and agent.network and agent.network.is_running:
+            agent.network.peer_manager.remove_stale()
+
         # Persist all changes
         if agent._store:
             for skill in agent._skills.values():
@@ -212,6 +219,7 @@ class AgentScheduler:
                 "decayed_count": decayed_count,
                 "archived_count": len(archived_skills),
                 "archived_skills": archived_skills,
+                "cleanup_count": cleanup_count,
             },
             source="scheduler",
         )

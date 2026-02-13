@@ -28,9 +28,11 @@ from .config import Settings, get_settings
 from .events import EventBus
 from .learner import DynamicSkill, LearnResult, SkillLearner
 from .llm import LLMClient
+from .network import NetworkServer
+from .protocol import compute_skill_hash
 from .reflection import ReflectionEngine, ReflectionResult
 from .scheduler import AgentScheduler
-from .skill import BaseSkill, SkillMetadata, SkillStatus, TrustLevel
+from .skill import BaseSkill, SkillMetadata, SkillOrigin, SkillStatus, TrustLevel
 from .storage import SkillStore
 
 # Callback type for SUGGEST mode: (skill_name, preview_text) -> approved?
@@ -84,10 +86,11 @@ class Agent:
         self._skills: dict[str, BaseSkill] = {}
         self._store: SkillStore | None = None
 
-        # Scheduler + reflection + learning
+        # Scheduler + reflection + learning + network
         self._scheduler: AgentScheduler | None = None
         self._llm: LLMClient | None = None
         self._learner: SkillLearner | None = None
+        self._network: NetworkServer | None = None
         self._last_reflection_result: ReflectionResult | None = None
         self._last_learn_result: LearnResult | None = None
 
@@ -142,6 +145,13 @@ class Agent:
         self._scheduler = AgentScheduler(self)
         self._scheduler.start()
 
+        # Auto-start network if configured
+        if self.settings.network.auto_start:
+            try:
+                await self.start_network()
+            except Exception as e:
+                logger.warning("Failed to auto-start network: %s", e)
+
         await self.bus.emit_async("agent.started", {
             "agent_id": self.agent_id,
         }, source="agent")
@@ -151,6 +161,9 @@ class Agent:
     async def shutdown(self) -> None:
         """Gracefully shut down all subsystems."""
         logger.info("Shutting down agent '%s'...", self.name)
+
+        # Stop network before state transition
+        await self.stop_network()
 
         # Stop scheduler before state transition
         if self._scheduler:
@@ -215,6 +228,78 @@ class Agent:
         if self.started_at == 0:
             return 0
         return time.time() - self.started_at
+
+    # ------------------------------------------------------------------
+    # Network
+    # ------------------------------------------------------------------
+
+    @property
+    def network(self) -> NetworkServer | None:
+        return self._network
+
+    async def start_network(self) -> None:
+        """Start the P2P network server."""
+        if self._network and self._network.is_running:
+            return
+        self._network = NetworkServer(self)
+        await self._network.start()
+
+    async def stop_network(self) -> None:
+        """Stop the P2P network server."""
+        if self._network and self._network.is_running:
+            await self._network.stop()
+        self._network = None
+
+    async def import_skill_from_network(
+        self, peer_id: str, skill_name: str
+    ) -> DynamicSkill | None:
+        """
+        Import a skill from a connected peer.
+
+        The imported skill starts at OBSERVE trust level regardless of
+        its trust level on the source agent. This ensures safety —
+        network skills must prove themselves locally before gaining autonomy.
+        """
+        if not self._network or not self._network.is_running:
+            logger.warning("Cannot import: network not running")
+            return None
+
+        defn = await self._network.fetch_skill(peer_id, skill_name)
+        if not defn:
+            logger.warning("Failed to fetch skill '%s' from peer '%s'", skill_name, peer_id)
+            return None
+
+        # Override trust and provenance for safety
+        meta = defn.get("metadata", {})
+        meta["trust_level"] = TrustLevel.OBSERVE.value
+        meta["origin"] = SkillOrigin.NETWORK.value
+        meta["source_agent"] = peer_id
+        defn["metadata"] = meta
+
+        name = meta.get("name", skill_name)
+
+        # Save definition to store
+        if self._store:
+            self._store.save_skill_definition(name, defn)
+            # Save reputation record
+            content_hash = compute_skill_hash(defn)
+            self._store.save_skill_reputation(
+                skill_name=name,
+                content_hash=content_hash,
+                source_agent=peer_id,
+            )
+
+        # Hydrate and register
+        skill = self._hydrate_learned_skill(name, defn)
+
+        if skill:
+            await self.bus.emit_async("network.skill_imported", {
+                "skill_name": name,
+                "source_agent": peer_id,
+            }, source="agent")
+            logger.info("Imported skill '%s' from peer '%s' (trust: OBSERVE)", name, peer_id)
+
+        return skill
 
     # ------------------------------------------------------------------
     # Skill management
@@ -549,6 +634,17 @@ class Agent:
             if isinstance(s, DynamicSkill)
         )
 
+        # Network status
+        network_info = None
+        if self._network and self._network.is_running:
+            pm = self._network.peer_manager
+            network_info = {
+                "running": True,
+                "port": self.settings.network.listen_port,
+                "connected_peers": len(pm.connected_peers),
+                "known_peers": len(pm.known_peers),
+            }
+
         return {
             "name": self.name,
             "agent_id": self.agent_id,
@@ -566,6 +662,7 @@ class Agent:
             "scheduler_running": self._scheduler is not None and self._scheduler.is_running,
             "last_reflection": last_ref,
             "last_learning": last_learn,
+            "network": network_info,
         }
 
 

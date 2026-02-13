@@ -47,7 +47,17 @@ default_level = "observe"
 # Number of successful executions before suggesting auto-upgrade
 promote_threshold = 10
 
+[logging]
+level = "INFO"
+log_file = "evolvagent.log"
+max_bytes = 5_000_000
+backup_count = 3
+
 [network]
-# Phase 3 settings - not used until then
-marketplace_url = ""
 listen_port = 8765
+seed_peers = []
+auto_start = false
+gossip_interval = 60
+max_peers = 20
+share_learned_skills = true
+share_builtin_skills = false

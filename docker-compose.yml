@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  agent-alpha:
+    build: .
+    container_name: evolvagent-alpha
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      - alpha-data:/data
+      - ./config.toml:/app/config.toml:ro
+    ports:
+      - "8765:8765"
+    command: ["evolvagent", "repl"]
+    networks:
+      - agentnet
+
+  agent-beta:
+    build: .
+    container_name: evolvagent-beta
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      - beta-data:/data
+      - ./config.toml:/app/config.toml:ro
+    ports:
+      - "8766:8765"
+    command: ["evolvagent", "repl"]
+    networks:
+      - agentnet
+
+volumes:
+  alpha-data:
+  beta-data:
+
+networks:
+  agentnet:
+    driver: bridge

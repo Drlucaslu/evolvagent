@@ -71,8 +71,27 @@ class TrustConfig:
 
 @dataclass
 class NetworkConfig:
-    marketplace_url: str = ""
     listen_port: int = 8765
+    marketplace_url: str = ""
+    seed_peers: list[str] = field(default_factory=list)  # ["host:port", ...]
+    auto_start: bool = False
+    gossip_interval: int = 60
+    connection_timeout: int = 10
+    max_peers: int = 20
+    share_learned_skills: bool = True
+    share_builtin_skills: bool = False
+    enable_tls: bool = False
+    tls_cert: str = ""
+    tls_key: str = ""
+    rate_limit_per_min: int = 100
+
+
+@dataclass
+class LoggingConfig:
+    level: str = "INFO"
+    log_file: str = "evolvagent.log"
+    max_bytes: int = 5_000_000
+    backup_count: int = 3
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +109,7 @@ class Settings:
     evolution: EvolutionConfig = field(default_factory=EvolutionConfig)
     trust: TrustConfig = field(default_factory=TrustConfig)
     network: NetworkConfig = field(default_factory=NetworkConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +152,7 @@ def load_settings(config_path: Path | None = None) -> Settings:
         "evolution": EvolutionConfig,
         "trust": TrustConfig,
         "network": NetworkConfig,
+        "logging": LoggingConfig,
     }
 
     kwargs = {}
@@ -139,7 +160,64 @@ def load_settings(config_path: Path | None = None) -> Settings:
         if key in raw:
             kwargs[key] = _make_section(cls, raw[key])
 
-    return Settings(**kwargs)
+    settings = Settings(**kwargs)
+
+    errors = validate_settings(settings)
+    if errors:
+        import logging
+        log = logging.getLogger(__name__)
+        for err in errors:
+            log.warning("Config validation: %s", err)
+
+    return settings
+
+
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
+
+_VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+
+
+def validate_settings(settings: Settings) -> list[str]:
+    """Validate settings values. Returns list of error messages (empty = ok)."""
+    errors: list[str] = []
+
+    # Port range
+    if not (1 <= settings.network.listen_port <= 65535):
+        errors.append(
+            f"network.listen_port must be 1-65535, got {settings.network.listen_port}"
+        )
+
+    # Temperature
+    if not (0.0 <= settings.llm.temperature <= 2.0):
+        errors.append(
+            f"llm.temperature must be 0.0-2.0, got {settings.llm.temperature}"
+        )
+
+    # Scheduler thresholds > 0
+    if settings.scheduler.cpu_threshold_percent <= 0:
+        errors.append("scheduler.cpu_threshold_percent must be > 0")
+    if settings.scheduler.memory_threshold_percent <= 0:
+        errors.append("scheduler.memory_threshold_percent must be > 0")
+    if settings.scheduler.idle_check_interval <= 0:
+        errors.append("scheduler.idle_check_interval must be > 0")
+    if settings.scheduler.min_idle_for_reflection <= 0:
+        errors.append("scheduler.min_idle_for_reflection must be > 0")
+
+    # Cost limit
+    if settings.llm.daily_cost_limit_usd < 0:
+        errors.append(
+            f"llm.daily_cost_limit_usd must be >= 0, got {settings.llm.daily_cost_limit_usd}"
+        )
+
+    # Log level
+    if settings.logging.level.upper() not in _VALID_LOG_LEVELS:
+        errors.append(
+            f"logging.level must be one of {_VALID_LOG_LEVELS}, got '{settings.logging.level}'"
+        )
+
+    return errors
 
 
 # Module-level singleton (lazy-initialized)
